@@ -1,0 +1,21 @@
+{
+    "name": "sector0.ursitoare-mirror",
+    "version": "1.0.0",
+    "displayName": "Ursitoare Mirror",
+    "description": "Client Side Prediction",
+    "unity": "2019.1",
+    "unityRelease": "0b5",
+    "dependencies": {
+        "sector0.safe-event-dispatcher": "1.0.0"
+    },
+    "keywords": [
+        "keyword1",
+        "keyword2",
+        "keyword3"
+    ],
+    "author": {
+        "name": "Milorad Liviu Felix",
+        "email": "todo@example.com",
+        "url": "https://www.unity3d.com"
+    }
+}
