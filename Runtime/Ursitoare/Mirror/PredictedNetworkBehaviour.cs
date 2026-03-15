@@ -3,8 +3,6 @@ using UnityEngine;
 
 namespace Prediction.Wrappers
 {
-    [RequireComponent(typeof(Rigidbody))]
-    [RequireComponent(typeof(PredictedEntityVisuals))]
     public class PredictedNetworkBehaviour : NetworkBehaviour, PredictedEntity
     {
         //FUDO: can we make components serializable?
@@ -13,7 +11,6 @@ namespace Prediction.Wrappers
         [SerializeField] private Rigidbody _rigidbody;
         //TODO: private set but serializable...
         public PredictedEntityVisuals visuals;// { get; private set; }
-        
         public ClientPredictedEntity clientPredictedEntity { get; private set; }
         public ServerPredictedEntity serverPredictedEntity { get; private set; }
         public bool isReady { get; private set; }
@@ -21,7 +18,14 @@ namespace Prediction.Wrappers
         [SerializeField] private bool dbgIsLocallyControlled;
         [SerializeField] private int dbgGOID;
         [SerializeField] private uint dbgNetID;
-        
+
+        void Awake()
+        {
+            if (components == null || components.Length == 0)
+            {
+                //
+            }
+        }
         private void SetReady(bool ready)
         {
             if (!isReady && ready)
