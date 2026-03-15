@@ -5,14 +5,24 @@ using UnityEngine;
 
 namespace Prediction.Wrappers
 {
-    public class NetworkPredictedManager : NetworkBehaviour
+    public class PredictionManagerMirror : NetworkBehaviour
     {
+        public static PredictionManagerMirror instance;
         public static bool MSG_DEBUG = false;
         PredictionManager predictionManager = new PredictionManager();
         
-        private void Start()
+        public void Start()
         {
-            PredictionManager.ROUND_TRIP_GETTER = () => NetworkTime.rtt;
+            Debug.Log($"[NetworkPredictionManagerAdapter] AppPath:{Application.dataPath}");
+            Debug.Log($"[NetworkPredictionManagerAdapter] PdPath:{Application.persistentDataPath}");
+            
+            if (instance != null)
+            {
+                Destroy(gameObject);
+                return;
+            }
+            instance = this;
+            
             if (isClient)
             {
                 Debug.Log($"[PredictionMirrorBridge][clientStateSender] SETUP CLIENT SENDER CALLBACK");
@@ -67,15 +77,39 @@ namespace Prediction.Wrappers
                         //TODO: report?
                     }
                 };
+                
+                predictionManager.serverSetControlledLocally = (connId, entityId, owned) =>
+                {
+                    NetworkConnectionToClient netconn = NetworkServer.connections.GetValueOrDefault(connId, null);
+                    if (netconn != null)
+                    {
+                        UpdateLocalOwnership(netconn, entityId, owned);
+                    }
+                    else if (connId != 0)
+                    {
+                        //TODO: report?
+                    }
+                };
             }
+            SetupPrediction();
+        }
+
+        void SetupPrediction()
+        {
+            Debug.Log($"[NetworkPredictionManagerAdapter][SetupPrediction] isServer:{isServer} isClient:{isClient}");
             predictionManager.Setup(isServer, isClient);
+        }
+
+        private void FixedUpdate()
+        {
+            predictionManager.Tick();
         }
 
         [Command(requiresAuthority = false, channel = Channels.Unreliable)]
         void ReportHeartbeat(uint tickId, NetworkConnectionToClient sender = null)
         {
             if (MSG_DEBUG)
-                Debug.Log($"[PredictionMirrorBridge][ReportHeartbeat] Received client_heartbeat: tickId:{tickId} sender:{sender}");
+                Debug.Log($"[PredictionMirrorBridge][ReportHeartbeat] RECV client_heartbeat: tickId:{tickId} sender:{sender}");
             predictionManager.OnHeartbeatReceived(sender.connectionId, tickId);
         }
         
@@ -83,7 +117,7 @@ namespace Prediction.Wrappers
         void ReportToServerUnreliable(uint tickId, PredictionInputRecord data, NetworkConnectionToClient sender = null)
         {
             if (MSG_DEBUG)
-                Debug.Log($"[PredictionMirrorBridge][ReportToServerUnreliable] Received client_report: tickId:{tickId} sender:{sender} data:{data}");
+                Debug.Log($"[PredictionMirrorBridge][ReportToServerUnreliable] RECV client_report: tickId:{tickId} sender:{sender} data:{data}");
             predictionManager.OnClientStateReceived(sender.connectionId, tickId, data);
         }
         
@@ -91,7 +125,7 @@ namespace Prediction.Wrappers
         void TargetedReportFromServerUnreliable(NetworkConnectionToClient receiver, uint entityNetId, PhysicsStateRecord data)
         {
             if (MSG_DEBUG)
-                Debug.Log($"[PredictionMirrorBridge][TargetedReportFromServerUnreliable] Received serrver_report: netId:{entityNetId} tickId:{data.tickId} data:{data}");
+                Debug.Log($"[PredictionMirrorBridge][TargetedReportFromServerUnreliable] RECV serrver_report: netId:{entityNetId} tickId:{data.tickId} data:{data}");
             predictionManager.OnServerStateReceived(entityNetId, data);
         }
         
@@ -99,8 +133,31 @@ namespace Prediction.Wrappers
         void TargetedWorldReportFromServerUnreliable(NetworkConnectionToClient receiver, WorldStateRecord data)
         {
             if (MSG_DEBUG)
-                Debug.Log($"[PredictionMirrorBridge][TargetedWorldReportFromServerUnreliable] Received server_report: data:{data}");
+                Debug.Log($"[PredictionMirrorBridge][TargetedWorldReportFromServerUnreliable] RECV server_report: data:{data}");
             predictionManager.OnServerWorldStateReceived(data);
+        }
+        
+        [TargetRpc(channel = Channels.Reliable)]
+        void UpdateLocalOwnership(NetworkConnectionToClient receiver, uint entityId, bool owned)
+        {
+            if (MSG_DEBUG)
+                Debug.Log($"[PredictionMirrorBridge][UpdateLocalOwnership] Received server_ownership_report: entity:{entityId} owned:{owned}");
+            predictionManager.OnEntityOwnershipChanged(entityId, owned);
+        }
+
+        [Server]
+        void ServerReset()
+        {
+            Debug.Log("[NetworkPredictionManagerAdapter][ServerReset]");
+            predictionManager.Clear();
+            RpcReset();
+        }
+        
+        [ClientRpc]
+        void RpcReset()
+        {
+            Debug.Log("[NetworkPredictionManagerAdapter][RpcReset]");
+            predictionManager.Clear();
         }
     }
 }
