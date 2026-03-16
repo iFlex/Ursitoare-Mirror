@@ -1,7 +1,8 @@
 ﻿using Mirror;
+using Prediction.Components.Controllers;
 using UnityEngine;
 
-namespace Prediction.Wrappers
+namespace Prediction.Components
 {
     public class PredictedNetworkBehaviour : NetworkBehaviour, PredictedEntity
     {

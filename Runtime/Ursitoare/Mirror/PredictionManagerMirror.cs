@@ -1,9 +1,9 @@
 ﻿using System.Collections.Generic;
 using Mirror;
-using Prediction.data;
+using Prediction.Data;
 using UnityEngine;
 
-namespace Prediction.Wrappers
+namespace Prediction.Components
 {
     public class PredictionManagerMirror : NetworkBehaviour
     {
