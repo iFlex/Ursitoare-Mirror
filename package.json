@@ -7,7 +7,7 @@
     "unityRelease": "0b5",
     "dependencies": {
         "sector0.safe-event-dispatcher": "1.0.0",
-        "sector0.ursitoare"
+        "sector0.ursitoare": "1.0.0"
     },
     "keywords": [
         "keyword1",
