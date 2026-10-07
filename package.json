@@ -1,12 +1,13 @@
 {
-    "name": "sector0.ursitoare-mirror",
+    "name": "sector0.UrsitoareMirror",
     "version": "1.0.0",
     "displayName": "Ursitoare Mirror",
     "description": "Client Side Prediction",
     "unity": "2019.1",
     "unityRelease": "0b5",
     "dependencies": {
-        "sector0.safe-event-dispatcher": "1.0.0"
+        "sector0.safe-event-dispatcher": "1.0.0",
+        "sector0.ursitoare"
     },
     "keywords": [
         "keyword1",

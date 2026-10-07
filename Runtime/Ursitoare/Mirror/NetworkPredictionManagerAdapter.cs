@@ -7,7 +7,7 @@ using Prediction.Data;
 using Prediction.Interpolation;
 using Prediction.Resimulation.Detection;
 
-namespace DefaultNamespace
+namespace PredictionMirrorBridge;
 {
     public class NetworkPredictionManagerAdapter : NetworkBehaviour
     {
