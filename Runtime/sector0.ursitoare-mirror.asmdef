@@ -1,6 +1,6 @@
 {
     "name": "sector0.ursitoare-mirror",
-    "rootNamespace": "Prediction.Wrappers",
+    "rootNamespace": "Sector0.UrsitoareMirror",
     "references": [
         "GUID:3d3036d29bf95a74c8ab257abc8e6c09",
         "GUID:b3e52b0d8c3e38648a793719c5a69aed",

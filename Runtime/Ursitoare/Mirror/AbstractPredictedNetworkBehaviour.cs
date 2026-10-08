@@ -1,8 +1,8 @@
 ﻿using Mirror;
-using Prediction;
-using Prediction.Components;
-using Prediction.Components.Controllers;
-using Prediction.Data;
+using Sector0.Ursitoare;
+using Sector0.Ursitoare.Components;
+using Sector0.Ursitoare.Data;
+using Sector0.Ursitoare.Wrappers;
 using UnityEngine;
 
 namespace Sector0.UrsitoareMirror

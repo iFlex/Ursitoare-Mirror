@@ -1,11 +1,11 @@
 ﻿using System.Collections.Generic;
 using Mirror;
 using UnityEngine;
-using Prediction;
-using Prediction.Components.Controllers;
-using Prediction.Data;
-using Prediction.Simulation;
 using Sector0.Events;
+using Sector0.Ursitoare;
+using Sector0.Ursitoare.Components;
+using Sector0.Ursitoare.Data;
+using Sector0.Ursitoare.Simulation;
 
 namespace Sector0.UrsitoareMirror
 {
