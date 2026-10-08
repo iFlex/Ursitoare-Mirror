@@ -3,8 +3,7 @@
     "version": "1.0.0",
     "displayName": "Ursitoare Mirror",
     "description": "Client Side Prediction",
-    "unity": "2019.1",
-    "unityRelease": "0b5",
+    "unity": "6000.0",
     "dependencies": {
         "sector0.safe-event-dispatcher": "1.0.0",
         "sector0.ursitoare": "1.0.0"
