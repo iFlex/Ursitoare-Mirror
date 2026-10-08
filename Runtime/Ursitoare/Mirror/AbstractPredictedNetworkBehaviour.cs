@@ -17,7 +17,12 @@ namespace Sector0.UrsitoareMirror
         public PredictedEntityVisuals visuals;
         public ClientPredictedEntity clientPredictedEntity { get; private set; }
         public ServerPredictedEntity serverPredictedEntity { get; private set; }
-        
+
+        //NOTE: visuals get detached from this object on spawn, remember where they lived so despawn can put them back.
+        private Transform _visualsParent;
+        private Vector3 _visualsLocalPosition;
+        private Quaternion _visualsLocalRotation;
+        private Vector3 _visualsLocalScale;
 
         protected void Awake()
         {
@@ -42,18 +47,65 @@ namespace Sector0.UrsitoareMirror
             }
         }
         
+        public override void OnStopServer()
+        {
+            if (serverPredictedEntity == null)
+                return;
+
+            //NOTE: RemovePredictedEntity doesn't release ownership, so release it first to drop the entity from its owner's set and tell the owning client.
+            ServerPredictionManager.Instance.UnsetOwnership(serverPredictedEntity);
+            ((PredictedEntity)this).Deregister();
+            serverPredictedEntity = null;
+            ReattachVisuals();
+        }
+
+        public override void OnStopClient()
+        {
+            //NOTE: on a host the server side owns the entity, OnStopServer cleans it up.
+            if (clientPredictedEntity == null)
+                return;
+
+            ((PredictedEntity)this).Deregister();
+            clientPredictedEntity = null;
+            ReattachVisuals();
+        }
+
         void ConfigureAsServer()
         {
             serverPredictedEntity = new ServerPredictedEntity(netId, bufferSize, _rigidbody, visuals.gameObject, WrapperHelpers.GetControllableComponents(predictionComponents, this), WrapperHelpers.GetComponents(predictionComponents, this));
             ((PredictedEntity)this).Register();
+            RememberVisualsParent();
             visuals.SetServerPredictedEntity(transform);
         }
 
         void ConfigureAsClient()
         {
             clientPredictedEntity = new ClientPredictedEntity(netId, false, bufferSize, _rigidbody, visuals.gameObject, WrapperHelpers.GetControllableComponents(predictionComponents, this), WrapperHelpers.GetComponents(predictionComponents, this));
+            RememberVisualsParent();
             visuals.SetClientPredictedEntity(clientPredictedEntity, PredictionManager.INTERPOLATION_PROVIDER());
             ((PredictedEntity)this).Register();
+        }
+
+        void RememberVisualsParent()
+        {
+            Transform visualsTransform = visuals.visualsEntity.transform;
+            _visualsParent = visualsTransform.parent;
+            _visualsLocalPosition = visualsTransform.localPosition;
+            _visualsLocalRotation = visualsTransform.localRotation;
+            _visualsLocalScale = visualsTransform.localScale;
+        }
+
+        //Detached visuals would outlive a destroyed object, or stay visible after a scene object is disabled on unspawn.
+        void ReattachVisuals()
+        {
+            if (!visuals || !visuals.visualsEntity || !_visualsParent)
+                return;
+
+            Transform visualsTransform = visuals.visualsEntity.transform;
+            visualsTransform.SetParent(_visualsParent, false);
+            visualsTransform.localPosition = _visualsLocalPosition;
+            visualsTransform.localRotation = _visualsLocalRotation;
+            visualsTransform.localScale = _visualsLocalScale;
         }
         
         public uint GetId()
