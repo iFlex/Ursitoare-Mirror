@@ -52,7 +52,13 @@ Your online scene needs two objects:
    - `NetworkIdentity`
    - `NetworkPredictionManagerAdapter`
 
-   Leave it in the scene; it is a scene object and is never spawned. Use one per scene, and keep it off the `NetworkManager`'s GameObject.
+   This object controls the physics simulation, applies inputs and does reconciliation. Make sure this object is spawned before any predicted object. The simplest thing is to leave it in the gameplay scene. Use exactly one, and keep it off the `NetworkManager`'s GameObject.
+
+In `Awake`, the adapter applies its rate settings:
+
+- Sets `Time.fixedDeltaTime` to 1 / Simulation Rate. This replaces the Fixed Timestep in Project Settings.
+- Sets the `NetworkManager`'s Send Rate to Network Send Rate.
+- Raises `Application.targetFrameRate` to Network Send Rate if it is capped below it. Mirror sends at most once per frame, so a lower frame rate would also lower the send rate.
 
 When the server or client starts, the adapter does three things:
 
@@ -60,14 +66,15 @@ When the server or client starts, the adapter does three things:
 - Ticks the manager every `FixedUpdate`.
 - Switches Unity physics to script mode, because Ursitoare calls `Physics.Simulate` itself.
 
-You can leave the adapter's Inspector fields at their defaults:
+The adapter's Inspector fields:
 
 | Field | Default | Meaning |
 |---|---|---|
-| Use Update Loop | off | Tick from `Update` (at most one tick per frame) instead of `FixedUpdate`. |
-| Use Game Time | off | With Use Update Loop on, count `Time.deltaTime` instead of wall-clock time. |
-| Invalid Connection Id | -1 | Connection id that means "no owner". |
-| Server Connection Id | 0 | Connection id that means "the server owns it". Mirror's host connection is also 0. |
+| Simulation Rate | 60 | Physics ticks per second. |
+| Network Send Rate | 30 | How many times per second Mirror sends its batched messages. |
+| Physics History Buffer Size | 120 | Ticks of physics state kept for rewinds. Keep each predicted behaviour's Buffer Size at or below it. |
+
+These values are applied only in `Awake` and aren't synced over the network, so the client and the server must use the same ones. Building both from the same scene takes care of that.
 
 ## 4. The rule: all movement goes in `ApplyForces`
 
@@ -79,7 +86,7 @@ You can leave the adapter's Inspector fields at their defaults:
 
 The rest of the contract:
 
-- **Read input only in `SampleInput()`** and write it into the record. Only read input there; don't change any state. The server also calls this method on objects it doesn't control and throws the result away.
+- **Read input only in `SampleInput()`** and write it into the record. Only read input there; don't change any state.
 - **`LoadInput()` copies the record into fields, and `ApplyForces()` reads only those fields.** It must never read `Input.*` or other live values, because during a replay `LoadInput()` feeds it input from the past.
 - **Read values in the order you wrote them.** `LoadInput()` must read in the same order `SampleInput()` wrote. The counts must match `GetFloatInputCount()` and `GetBinaryInputCount()`.
 - **Count time in ticks, not with `Time.time`.** During a replay, `Time.time` is the current time, not the time of the tick being replayed.
@@ -257,7 +264,7 @@ public static class PredictionOwnership
         obj.netIdentity.AssignClientAuthority(conn);
     }
 
-    // Give control back to the server (0 = the adapter's Server Connection Id).
+    // Give control back to the server (connection 0).
     public static void ReturnToServer(AbstractPredictedNetworkBehaviour obj)
     {
         ServerPredictionManager.Instance.SetEntityOwner(obj.serverPredictedEntity, 0);
@@ -346,14 +353,14 @@ The "Demo" column shows the values used in the reference demo, which are a teste
 
 | What | Setting | Default | Demo | Effect |
 |---|---|---|---|---|
-| Tick rate | Project Settings › Time › Fixed Timestep | 0.02 (50 Hz) | 1/120 | Simulation and input rate: one input and one state message per object per tick. Higher is more responsive but costs more CPU and bandwidth. Interpolators read it when they're created, so set it before spawning. |
-| Send rate | `NetworkManager` › Send Rate | 60 | 60 | How often Mirror flushes its batched messages. Below the tick rate, messages arrive in bursts of tick rate ÷ send rate. |
-| History | Buffer Size on each predicted behaviour | 50 | 50 | Ticks of input and state history. It must cover the round trip in ticks, plus the server input buffer, plus a margin; otherwise the client freezes until the server catches up. Keep it at 120 or less, the size of the adapter's physics rewind buffer. |
+| Tick rate | Adapter › Simulation Rate | 60 Hz | 120 Hz | Simulation and input rate: one input and one state message per object per tick. Higher is more responsive but costs more CPU and bandwidth. Interpolators read it when they're created, so set it in the Inspector and don't change it at runtime. |
+| Send rate | Adapter › Network Send Rate | 30 | 60 | How often Mirror flushes its batched messages. Below the tick rate, messages arrive in bursts of tick rate ÷ send rate. |
+| History | Buffer Size on each predicted behaviour | 50 | 50 | Ticks of input and state history. It must cover the round trip in ticks, plus the server input buffer, plus a margin; otherwise the client freezes until the server catches up. Keep it at or below the adapter's Physics History Buffer Size (120 by default). |
 | Server input buffer | `ServerPredictedEntity.BUFFER_FULL_THRESHOLD` | 3 | 5 | Ticks of a client's input the server queues before applying it. More absorbs network jitter, so the owner gets fewer corrections, but everyone else sees the object later. |
 | Server catch-up | `ServerPredictedEntity.CATCHUP`, `CATCHUP_SECTIONS` | on, 3 | on, 10 | When a client's input queue grows, the server applies several inputs per tick. A higher sections value starts catching up sooner. Read at spawn. |
 | Correction threshold, own objects | `PredictionManager.SNAPSHOT_INSTANCE_RESIM_CHECKER` = `new SimpleConfigurableResimulationDecider(distance, angle°, velocity, angularVelocity)` | 0.0001, 0.0001, 0.001, 0.001 | 0.01 each | Error between prediction and server that triggers a rewind and replay. Lower is more exact but replays more often (CPU). Higher tolerates small errors, then fixes them in bigger steps. Read at spawn. |
 | Correction threshold, followers | `PredictionManager.FOLLOWER_INSTANCE_RESIM_CHECKER` | same as above | – | The same for objects you don't control. Looser values stop other players from triggering replays. Read at spawn. |
-| Predict followers | `PredictionManager.PREDICT_FOLLOWERS` | true | true | Simulate other objects forward between server updates. Keep it `true`: with `false`, other players snap to the latest server state, and objects without input aren't corrected at all. |
+| Predict followers | `PredictionManager.PREDICT_FOLLOWERS` | true | true | Simulate other objects forward between server updates. Keep it `true`: with `false`, every object you don't control, other players and props alike, snaps to the latest server state each time one arrives. |
 | Visual smoothing | `MovingAverageInterpolator.FOLLOWER_SMOOTH_WINDOW` | 4 | 4 | Number of ticks averaged when drawing each predicted object. Despite the name, it applies to every object. Bigger is smoother but adds visual delay. |
 | Replay rate cap | `PredictionManager.Instance.minTicksBetweenResims` (with `protectFromOversimulation` and `oversimProtectWithTickInterval` on, the default) | 0 (no cap) | off | Allows at most one replay every N ticks. Caps CPU use, but corrections arrive later. This is an instance field, so set it in `onReady`. |
 
@@ -361,7 +368,7 @@ The "Demo" column shows the values used in the reference demo, which are a teste
 
 1. **Set the tick rate and send rate first.** Everything else is measured in ticks.
 2. **Test under bad network conditions.** Wrap your transport in Mirror's `LatencySimulation` (latency, jitter, packet loss), run a server or host, and connect a separate client build.
-3. **Watch the numbers.** `PredictionManager.Instance` has `totalResimulations`, `totalResimulationSteps` and `totalTickFreezes`. The adapter also logs `HEAVY_TICK`, `PACKET_LOSS` and `LARGE_VISUAL_TRANSFORM_JUMP` warnings.
+3. **Watch the numbers.** `PredictionManager.Instance` has `totalResimulations`, `totalResimulationSteps` and `totalTickFreezes`. For per-tick warnings, subscribe in `onReady` to `PredictionManager.Instance.onTickStat` (tick and replay durations), `onPacketLoss` (client only) and `PredictedEntityVisuals.onLargeTransformJumpGlobal`.
 4. **Match symptoms to fixes:**
 
 | Symptom | Try |
@@ -385,5 +392,5 @@ Logging is expensive at high tick rates, so turn it on only while you investigat
 ## 10. Known limitations
 
 - Settings are global (static fields), not per object.
-- A client that controls nothing (a spectator) does not correct objects that have no input, such as props.
+- A client that controls nothing (a spectator) doesn't predict other objects, whatever `PREDICT_FOLLOWERS` is set to. It snaps each one to the latest server state when that arrives.
 - See the [Ursitoare documentation](https://github.com/iFlex/Ursitoare) for how the library works internally and for its full scripting API.

@@ -1,9 +1,9 @@
-﻿using System.Collections.Generic;
+﻿using System;
+using System.Collections.Generic;
 using Mirror;
 using UnityEngine;
 using Sector0.Events;
 using Sector0.Ursitoare;
-using Sector0.Ursitoare.Components;
 using Sector0.Ursitoare.Data;
 using Sector0.Ursitoare.Simulation;
 
@@ -13,130 +13,138 @@ namespace Sector0.UrsitoareMirror
     {
         public static bool DEBUG = false;
         public static bool MSG_DEBUG = false;
-        public static NetworkPredictionManagerAdapter instance;
+        public static NetworkPredictionManagerAdapter Instance;
         
         PredictionManager predictionManager;
-        //TODO: remove the need for these 2 instances and use closures for handling messages from the server
         ClientPredictionManager _clientPredictionManager;
         ServerPredictionManager _serverPredictionManager;
         
         //TODO: offer a way to wire in PhysicsControllers
         
-        public bool hasClientPredManager;
-        public bool hasServerPredManager;
-        
-        public bool useUpdateLoop = false;
-        public bool useGameTime;
-
-        [SerializeField] private int InvalidConnectionId = -1;
-        [SerializeField] private int ServerConnectionId = 0;
+        private int InvalidConnectionId = -1;
+        private int ServerConnectionId = 0;
+        [SerializeField] [Min(1)] private float simulationRate = 60;
+        [SerializeField] [Min(1)] private int networkSendRate = 30;
+        [SerializeField] [Min(1)] private int PhysicsHistoryBufferSize = 120;
         
         void Awake()
         {
-            instance = this;
+            if (Instance)
+            {
+                throw new Exception("Multiple NetworkPredictionManagerAdapters detected");
+            }
+            Instance = this;
+            SetupApplication();
         }
         
+        void OnDestroy()
+        {
+            if (Instance == this)
+            {
+                Instance = null;
+            }
+        }
+        
+        //NOTE: Mirror starts a duplicate adapter even though its Awake threw, so only the registered Instance sets up.
         public override void OnStartServer()
         {
-            SetupServer();
+            if (Instance == this)
+                SetupServer();
         }
-        
+
         public override void OnStartClient()
         {
-            if (!isServer)
+            if (Instance == this && !isServer)
                 SetupClient();
+        }
+
+        protected virtual void SetupApplication()
+        {
+            Time.fixedDeltaTime = 1f / simulationRate;
+            NetworkManager.singleton.sendRate = networkSendRate;
+            if (Application.targetFrameRate > 0 && Application.targetFrameRate < networkSendRate)
+            {
+                //NOTE: Mirror runs in lateUpdate on the Update loop, hence it is affected by the target frame rate.
+                Application.targetFrameRate = networkSendRate;
+            }
         }
 
         void SetupClient()
         {
-            Debug.Log($"[PredictionMirrorBridge][clientStateSender] SETUP CLIENT SENDER CALLBACK");
+            Debug.Log($"[NetworkPredictionManagerAdapter][SetupClient] SETUP CLIENT SENDER CALLBACK");
             _clientPredictionManager = new ClientPredictionManager((tickId) =>
             {
                 if (MSG_DEBUG)
                     Debug.Log(
-                        $"[PredictionMirrorBridge][clientHeartbeadSender] SEND client_heartbeat tickId:{tickId}");
+                        $"[NetworkPredictionManagerAdapter][SetupClient] SEND client_heartbeat tickId:{tickId}");
                 ReportHeartbeat(tickId);
             },(tickId, entityId, data) =>
             {
                 if (MSG_DEBUG)
-                    Debug.Log($"[PredictionMirrorBridge][clientStateSender] SEND client_report: tickId:{tickId} entityId:{entityId} data:{data}");
+                    Debug.Log($"[NetworkPredictionManagerAdapter][SetupClient] SEND client_report: tickId:{tickId} entityId:{entityId} data:{data}");
                     
                 ReportToServerUnreliable(tickId, entityId, data);
             });
-            _clientPredictionManager.onTickStat.AddEventListener(OnTickStat);
-            _clientPredictionManager.onPacketLoss.AddEventListener(OnPacketLoss);
-            PredictedEntityVisuals.onLargeTransformJumpGlobal.AddEventListener(OnLargeTransformJump);
+            
             predictionManager = _clientPredictionManager;
-            hasClientPredManager = true;
-            predictionManager.SetPhysicsController(new RewindablePhysicsController(120));
+            predictionManager.SetPhysicsController(new RewindablePhysicsController(PhysicsHistoryBufferSize));
+            
             onReady.Dispatch(true);
         }
         
         void SetupServer()
         {
-            Debug.Log($"[PredictionMirrorBridge][clientStateSender] SETUP SERVER SEND CALLBACK");
-                _serverPredictionManager = new ServerPredictionManager(InvalidConnectionId, ServerConnectionId, (connId, entityId, data) =>
-                {
-                    if (MSG_DEBUG)
-                        Debug.Log($"[PredictionMirrorBridge][clientStateSender] SEND server_report: netId:{entityId} tickId:{data.tickId} data:{data}");
+            Debug.Log($"[NetworkPredictionManagerAdapter][SetupServer] SETUP SERVER SEND CALLBACK");
+            _serverPredictionManager = new ServerPredictionManager(InvalidConnectionId, ServerConnectionId, (connId, entityId, data) =>
+            {
+                if (MSG_DEBUG)
+                    Debug.Log($"[NetworkPredictionManagerAdapter][SetupServer] SEND server_report: netId:{entityId} tickId:{data.tickId} data:{data}");
 
-                    NetworkConnectionToClient netconn = GetNetConn(connId);
-                    if (netconn != null)
-                    {
-                        TargetedReportFromServerUnreliable(netconn, entityId, data);
-                    }
-                    else if (connId != 0)
-                    {
-                        //TODO: report?
-                    }
-                }, (connId, data) =>
+                NetworkConnectionToClient netconn = GetNetConn(connId);
+                if (netconn != null)
                 {
-                    if (MSG_DEBUG)
-                        Debug.Log($"[PredictionMirrorBridge][serverWorldStateSender] SEND server_world_report: connId:{connId} data:{data}");
-                    
-                    NetworkConnectionToClient netconn = GetNetConn(connId);
-                    if (netconn != null)
-                    {
-                        TargetedWorldReportFromServerUnreliable(netconn, data);
-                    }
-                    else if (connId != 0)
-                    {
-                        //TODO: report?
-                    }
-                }, (connId, entityId, owned) =>
+                    TargetedReportFromServerUnreliable(netconn, entityId, data);
+                }
+            }, (connId, data) =>
+            {
+                if (MSG_DEBUG)
+                    Debug.Log($"[NetworkPredictionManagerAdapter][SetupServer] SEND server_world_report: connId:{connId} data:{data}");
+                
+                NetworkConnectionToClient netconn = GetNetConn(connId);
+                if (netconn != null)
                 {
-                    NetworkConnectionToClient netconn = GetNetConn(connId);
-                    Debug.Log($"[NetworkPredictionManagerAdapter][reliableServerSetControlledLocally] connId:{connId} entityId:{entityId} owned:{owned} owned:{owned} netconn:{netconn}");
-                    if (netconn != null)
-                    {
-                        UpdateLocalOwnership(netconn, entityId, owned);
-                    }
-                    else if (connId != 0)
-                    {
-                        //TODO: report?
-                    }
-                }, () => NetworkServer.connections.Keys);
-                predictionManager = _serverPredictionManager;
-                hasServerPredManager = true;
-                predictionManager.SetPhysicsController(new RewindablePhysicsController(120));
-                onReady.Dispatch(true);
+                    TargetedWorldReportFromServerUnreliable(netconn, data);
+                }
+            }, (connId, entityId, owned) =>
+            {
+                NetworkConnectionToClient netconn = GetNetConn(connId);
+                if (netconn != null)
+                {
+                    UpdateLocalOwnership(netconn, entityId, owned);
+                }
+            }, () => NetworkServer.connections.Keys);
+            
+            predictionManager = _serverPredictionManager;
+            predictionManager.SetPhysicsController(new RewindablePhysicsController(PhysicsHistoryBufferSize));
+            
+            onReady.Dispatch(true);
         }
 
         private NetworkConnectionToClient GetNetConn(int connId)
         {
-            if (connId == 0)
+            if (connId == ServerConnectionId)
                 return null;
             return NetworkServer.connections.GetValueOrDefault(connId, null);
         }
 
         private void FixedUpdate()
         {
+            //NOTE: during a client's initial spawn Mirror activates this object before OnStartClient creates the manager.
+            if (predictionManager == null)
+                return;
             if (DEBUG)
-                Debug.Log($"[NetworkPredictionManagerAdapter][Tick] t:{predictionManager.GetTickId()} time:{Time.realtimeSinceStartup} uul:{useUpdateLoop} mdt:{Time.maximumDeltaTime}");
-            if (!useUpdateLoop)
-            {
-                predictionManager.Tick();
-            }
+                Debug.Log($"[NetworkPredictionManagerAdapter][Tick] t:{predictionManager.GetTickId()} time:{Time.realtimeSinceStartup} mdt:{Time.maximumDeltaTime}");
+            predictionManager.Tick();
         }
 
         [Command(requiresAuthority = false, channel = Channels.Unreliable)]
@@ -177,65 +185,6 @@ namespace Sector0.UrsitoareMirror
             if (MSG_DEBUG)
                 Debug.Log($"[PredictionMirrorBridge][UpdateLocalOwnership] Received server_ownership_report: entity:{entityId} owned:{owned}");
             _clientPredictionManager.OnEntityOwnershipChanged(entityId, owned);
-        }
-        
-
-        void OnPacketLoss(int lostCount)
-        {
-            Debug.Log($"[NetworkPredictionManagerAdapter][WARNING][PACKET_LOSS] tickId:{PredictionManager.Instance.GetTickId()} lost:{lostCount}");        
-        }
-        
-        void OnTickStat(PredictionManager.TickStat tickStat)
-        {
-            if (tickStat.duration >= Time.fixedDeltaTime * 0.75f)
-            {
-                Debug.Log($"[NetworkPredictionManagerAdapter][WARNING][HEAVY_TICK] tickId:{tickStat.tickId} tickTime:{tickStat.duration} FixedDTime:{Time.fixedDeltaTime} resimDuration:{tickStat.resimDuration} resimmedTicks:{tickStat.resimTicks}");        
-            }
-        }
-
-        void OnLargeTransformJump(PredictedEntityVisuals.GlobalTransformJump transformJump)
-        {
-            Debug.Log($"[NetworkPredictionManagerAdapter][WARNING][LARGE_VISUAL_TRANSFORM_JUMP] tickId:{predictionManager.GetTickId()} pos:{transformJump.jump.positionDiff}|({transformJump.jump.positionDiff.magnitude}) rot:{transformJump.jump.rotationDiff.eulerAngles}");
-        }
-
-        private float timeSincePredTick = 0;
-        private float lastWallClockUpdate = 0;
-        void Update()
-        {
-            if (DEBUG) 
-                Debug.Log($"[Prediction][Update] t:{Time.realtimeSinceStartup} uul:{useUpdateLoop} mdt:{Time.maximumDeltaTime}");
-
-            if (useUpdateLoop)
-            {
-                float deltaWallClock = Time.realtimeSinceStartup - lastWallClockUpdate;
-                if (useGameTime)
-                {
-                    timeSincePredTick += Time.deltaTime;
-                }
-                else
-                {
-                    timeSincePredTick += deltaWallClock;
-                }
-                
-                if (timeSincePredTick >= Time.fixedDeltaTime)
-                {
-                    timeSincePredTick -= Time.fixedDeltaTime;
-                    predictionManager.Tick();
-                }
-                
-                lastWallClockUpdate = Time.realtimeSinceStartup;
-            }
-        }
-
-        void OnDestroy()
-        {
-            instance = null;
-            if (predictionManager != null)
-            {
-                predictionManager.onTickStat.RemoveEventListener(OnTickStat);
-                predictionManager.onPacketLoss.RemoveEventListener(OnPacketLoss);
-            }
-            PredictedEntityVisuals.onLargeTransformJumpGlobal.RemoveEventListener(OnLargeTransformJump);
         }
 
         public SafeEventDispatcher<bool> onReady = new();
