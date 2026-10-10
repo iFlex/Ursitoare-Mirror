@@ -4,7 +4,7 @@
 
 You add one object to your online scene and derive your networked physics behaviours from `AbstractPredictedNetworkBehaviour`. That gives them client-side prediction, server reconciliation and smoothed visuals.
 
-**How it works.** The server is authoritative. Every physics tick, the client that controls an object samples its input, sends it to the server and simulates the tick right away. The server applies the same input and sends back the resulting state, tagged with the client's tick number. If the client's prediction for that tick was wrong, the client rewinds to it and replays its stored inputs up to the present. Objects the client doesn't control (other players, props) are simulated forward from the latest server state.
+**How it works.** The server is authoritative. Every physics tick, the client that controls an object samples its input, sends it to the server and simulates the tick right away. The server applies the same input and sends back the resulting state, tagged with the client's tick number. If the client's prediction for that tick was wrong, the client rewinds to it and replays its stored inputs up to the present. Objects the client doesn't control (other players, props) are either predicted forward in the same way or shown slightly in the past, following the server's states; see [Choose a prediction mode](#choose-a-prediction-mode).
 
 ## Contents
 
@@ -322,6 +322,19 @@ There is no event when ownership changes. Poll these values where you need them,
 
 ## 8. Tuning
 
+### Choose a prediction mode
+
+`ClientPredictionManager.PREDICT_FOLLOWERS` picks one of two ways to run prediction. It decides what a client does with the objects it doesn't control (its followers):
+
+| | `true` (default) | `false` |
+|---|---|---|
+| Followers | Predicted forward to the present, like your own objects. This is the Rocket League approach. | Shown slightly in the past, following the stream of server states. The visuals are smoothed between states. |
+| Replays | A follower that drifts from the server state triggers a rewind and replay. | Only your own objects trigger replays. |
+| Collisions with followers | More precise: both sides are simulated at the same moment. | Less precise: your objects are in the present and followers in the past. |
+| CPU | More replays. | Far fewer replays. |
+
+Choose `true` when precise contact with other players and moving objects matters. Choose `false` when it doesn't, to spend much less CPU on replays. A client that controls nothing (a spectator) always runs as if it were `false`.
+
 ### Where to apply settings
 
 Most settings are static fields, and several are read only when an object spawns. Set them before predicted objects spawn. The adapter's `onReady` event fires when it creates the prediction manager, at server or client start:
@@ -362,8 +375,8 @@ The "Demo" column shows the values used in the reference demo, which are a teste
 | Server input buffer | `ServerPredictedEntity.BUFFER_FULL_THRESHOLD` | 3 | 5 | Ticks of a client's input the server queues before applying it. More absorbs network jitter, so the owner gets fewer corrections, but everyone else sees the object later. |
 | Server catch-up | `ServerPredictedEntity.CATCHUP`, `CATCHUP_SECTIONS` | on, 3 | on, 10 | When a client's input queue grows, the server applies several inputs per tick. A higher sections value starts catching up sooner. Read at spawn. |
 | Correction threshold, own objects | `PredictionManager.SNAPSHOT_INSTANCE_RESIM_CHECKER` = `new SimpleConfigurableResimulationDecider(distance, angle°, velocity, angularVelocity)` | 0.0001, 0.0001, 0.001, 0.001 | 0.01 each | Error between prediction and server that triggers a rewind and replay. Lower is more exact but replays more often (CPU). Higher tolerates small errors, then fixes them in bigger steps. Read at spawn. |
-| Correction threshold, followers | `PredictionManager.FOLLOWER_INSTANCE_RESIM_CHECKER` | same as above | – | The same for objects you don't control. Looser values stop other players from triggering replays. Read at spawn. |
-| Predict followers | `ClientPredictionManager.PREDICT_FOLLOWERS` | true | true | Simulate other objects forward between server updates. Keep it `true`: with `false`, every object you don't control, other players and props alike, snaps to the latest server state each time one arrives. |
+| Correction threshold, followers | `PredictionManager.FOLLOWER_INSTANCE_RESIM_CHECKER` | same as above | – | The same for objects you don't control. Looser values stop other players from triggering replays. Only used when `PREDICT_FOLLOWERS` is `true`. Read at spawn. |
+| Predict followers | `ClientPredictionManager.PREDICT_FOLLOWERS` | true | true | Predict the objects you don't control (`true`), or have them follow the server's states (`false`). See [Choose a prediction mode](#choose-a-prediction-mode). |
 | Visual smoothing | `MovingAverageInterpolator.FOLLOWER_SMOOTH_WINDOW` | 4 | 4 | Number of ticks averaged when drawing each predicted object. Despite the name, it applies to every object. Bigger is smoother but adds visual delay. |
 | Replay rate cap | `PredictionManager.Instance.minTicksBetweenResims` (with `protectFromOversimulation` and `oversimProtectWithTickInterval` on, the default) | 0 (no cap) | off | Allows at most one replay every N ticks. Caps CPU use, but corrections arrive later. This is an instance field, so set it in `onReady`. |
 
@@ -379,7 +392,7 @@ The "Demo" column shows the values used in the reference demo, which are a teste
 | Replays every tick, even without latency | Something breaks [the rule](#4-the-rule-all-movement-goes-in-applyforces), the client and server simulate different things, or the thresholds are too tight. |
 | Your own object rubber-bands under jitter | Raise `BUFFER_FULL_THRESHOLD`. |
 | Freezes or hitches at high ping | Raise Buffer Size. |
-| CPU spikes from replays | Loosen the thresholds, set `minTicksBetweenResims`, or predict fewer objects. |
+| CPU spikes from replays | Loosen the thresholds, set `minTicksBetweenResims`, predict fewer objects, or set `PREDICT_FOLLOWERS = false`. |
 | Other players jitter | Loosen the follower threshold, or raise `FOLLOWER_SMOOTH_WINDOW`. |
 | Visuals feel late | Lower `FOLLOWER_SMOOTH_WINDOW`, or raise the tick rate. |
 
@@ -394,5 +407,5 @@ Logging is expensive at high tick rates, so turn it on only while you investigat
 ## 10. Known limitations
 
 - Settings are global (static fields), not per object.
-- A client that controls nothing (a spectator) doesn't predict other objects, whatever `PREDICT_FOLLOWERS` is set to. It snaps each one to the latest server state when that arrives.
+- A client that controls nothing (a spectator) always runs as if `PREDICT_FOLLOWERS` were `false`, whatever it is set to.
 - See the [Ursitoare documentation](https://github.com/iFlex/Ursitoare) for how the library works internally and for its full scripting API.
