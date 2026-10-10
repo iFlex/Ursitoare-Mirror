@@ -360,7 +360,7 @@ The "Demo" column shows the values used in the reference demo, which are a teste
 | Server catch-up | `ServerPredictedEntity.CATCHUP`, `CATCHUP_SECTIONS` | on, 3 | on, 10 | When a client's input queue grows, the server applies several inputs per tick. A higher sections value starts catching up sooner. Read at spawn. |
 | Correction threshold, own objects | `PredictionManager.SNAPSHOT_INSTANCE_RESIM_CHECKER` = `new SimpleConfigurableResimulationDecider(distance, angle°, velocity, angularVelocity)` | 0.0001, 0.0001, 0.001, 0.001 | 0.01 each | Error between prediction and server that triggers a rewind and replay. Lower is more exact but replays more often (CPU). Higher tolerates small errors, then fixes them in bigger steps. Read at spawn. |
 | Correction threshold, followers | `PredictionManager.FOLLOWER_INSTANCE_RESIM_CHECKER` | same as above | – | The same for objects you don't control. Looser values stop other players from triggering replays. Read at spawn. |
-| Predict followers | `PredictionManager.PREDICT_FOLLOWERS` | true | true | Simulate other objects forward between server updates. Keep it `true`: with `false`, other players snap to the latest server state, and objects without input aren't corrected at all. |
+| Predict followers | `PredictionManager.PREDICT_FOLLOWERS` | true | true | Simulate other objects forward between server updates. Keep it `true`: with `false`, every object you don't control, other players and props alike, snaps to the latest server state each time one arrives. |
 | Visual smoothing | `MovingAverageInterpolator.FOLLOWER_SMOOTH_WINDOW` | 4 | 4 | Number of ticks averaged when drawing each predicted object. Despite the name, it applies to every object. Bigger is smoother but adds visual delay. |
 | Replay rate cap | `PredictionManager.Instance.minTicksBetweenResims` (with `protectFromOversimulation` and `oversimProtectWithTickInterval` on, the default) | 0 (no cap) | off | Allows at most one replay every N ticks. Caps CPU use, but corrections arrive later. This is an instance field, so set it in `onReady`. |
 
@@ -392,5 +392,5 @@ Logging is expensive at high tick rates, so turn it on only while you investigat
 ## 10. Known limitations
 
 - Settings are global (static fields), not per object.
-- A client that controls nothing (a spectator) does not correct objects that have no input, such as props.
+- A client that controls nothing (a spectator) doesn't predict other objects, whatever `PREDICT_FOLLOWERS` is set to. It snaps each one to the latest server state when that arrives.
 - See the [Ursitoare documentation](https://github.com/iFlex/Ursitoare) for how the library works internally and for its full scripting API.
