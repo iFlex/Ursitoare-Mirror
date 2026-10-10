@@ -54,13 +54,13 @@ Your online scene needs two objects:
 
    This object controls the physics simulation, applies inputs and does reconciliation. Make sure this object is spawned before any predicted object. The simplest thing is to leave it in the gameplay scene. Use exactly one, and keep it off the `NetworkManager`'s GameObject.
 
-In `Awake`, the adapter applies its rate settings:
+When the server or client starts, the adapter applies its rate settings:
 
 - Sets `Time.fixedDeltaTime` to 1 / Simulation Rate. This replaces the Fixed Timestep in Project Settings.
 - Sets the `NetworkManager`'s Send Rate to Network Send Rate.
 - Raises `Application.targetFrameRate` to Network Send Rate if it is capped below it. Mirror sends at most once per frame, so a lower frame rate would also lower the send rate.
 
-When the server or client starts, the adapter does three things:
+It also does three things:
 
 - Creates Ursitoare's prediction manager and wires it to Mirror. Inputs and states travel on the unreliable channel, ownership changes on the reliable one.
 - Ticks the manager every `FixedUpdate`.
@@ -74,7 +74,7 @@ The adapter's Inspector fields:
 | Network Send Rate | 30 | How many times per second Mirror sends its batched messages. |
 | Physics History Buffer Size | 120 | Ticks of physics state kept for rewinds. Keep each predicted behaviour's Buffer Size at or below it. |
 
-These values are applied only in `Awake` and aren't synced over the network, so the client and the server must use the same ones. Building both from the same scene takes care of that.
+These values are applied only when the server or client starts and aren't synced over the network, so the client and the server must use the same ones. Building both from the same scene takes care of that.
 
 ## 4. The rule: all movement goes in `ApplyForces`
 
@@ -213,6 +213,7 @@ Wire it up:
 | | Visuals | The `PredictedEntityVisuals` component. **Required.** |
 | | Prediction Components | Optional extra prediction components (see section 5). |
 | | Buffer Size | Ticks of history to keep (see [Tuning](#8-tuning)). |
+| | Auto Set Ownership | On (default): the owner is taken from Mirror at spawn. Off: the server owns the object until you assign an owner (see [Spawning and ownership](#7-spawning-and-ownership)). |
 | `PredictedEntityVisuals` | Visuals Entity | The `Visuals` child. |
 | | Server / Client Ghost Prefab | Optional debug markers (see [Debugging](#9-debugging)). |
 | `NetworkManager` | Player Prefab or Registered Spawnable Prefabs | This prefab. |
@@ -235,6 +236,8 @@ At spawn, the owner is taken from Mirror:
 - **Owned by a client:** the player object, and anything spawned with `NetworkServer.Spawn(obj, conn)`.
 - **Owned by the server:** anything spawned with `NetworkServer.Spawn(obj)` (no owner). Its `SampleInput()` runs on the server, which is how you drive AI and bots.
 - **On a host,** the host's own player is server-owned too (connection 0). It runs on the server directly, without prediction.
+
+To decide the owner yourself, turn off **Auto Set Ownership** on the behaviour. The object then starts server-owned, whatever its Mirror owner, until you assign one as shown in [Changing the owner at runtime](#changing-the-owner-at-runtime).
 
 Because `SampleInput()` runs on whichever machine owns the object, give it an input source that makes sense there: the keyboard for a player, an AI brain for a bot. Don't assume `isLocalPlayer`, because ownership can change.
 
@@ -360,7 +363,7 @@ The "Demo" column shows the values used in the reference demo, which are a teste
 | Server catch-up | `ServerPredictedEntity.CATCHUP`, `CATCHUP_SECTIONS` | on, 3 | on, 10 | When a client's input queue grows, the server applies several inputs per tick. A higher sections value starts catching up sooner. Read at spawn. |
 | Correction threshold, own objects | `PredictionManager.SNAPSHOT_INSTANCE_RESIM_CHECKER` = `new SimpleConfigurableResimulationDecider(distance, angle°, velocity, angularVelocity)` | 0.0001, 0.0001, 0.001, 0.001 | 0.01 each | Error between prediction and server that triggers a rewind and replay. Lower is more exact but replays more often (CPU). Higher tolerates small errors, then fixes them in bigger steps. Read at spawn. |
 | Correction threshold, followers | `PredictionManager.FOLLOWER_INSTANCE_RESIM_CHECKER` | same as above | – | The same for objects you don't control. Looser values stop other players from triggering replays. Read at spawn. |
-| Predict followers | `PredictionManager.PREDICT_FOLLOWERS` | true | true | Simulate other objects forward between server updates. Keep it `true`: with `false`, every object you don't control, other players and props alike, snaps to the latest server state each time one arrives. |
+| Predict followers | `ClientPredictionManager.PREDICT_FOLLOWERS` | true | true | Simulate other objects forward between server updates. Keep it `true`: with `false`, every object you don't control, other players and props alike, snaps to the latest server state each time one arrives. |
 | Visual smoothing | `MovingAverageInterpolator.FOLLOWER_SMOOTH_WINDOW` | 4 | 4 | Number of ticks averaged when drawing each predicted object. Despite the name, it applies to every object. Bigger is smoother but adds visual delay. |
 | Replay rate cap | `PredictionManager.Instance.minTicksBetweenResims` (with `protectFromOversimulation` and `oversimProtectWithTickInterval` on, the default) | 0 (no cap) | off | Allows at most one replay every N ticks. Caps CPU use, but corrections arrive later. This is an instance field, so set it in `onReady`. |
 
@@ -368,7 +371,7 @@ The "Demo" column shows the values used in the reference demo, which are a teste
 
 1. **Set the tick rate and send rate first.** Everything else is measured in ticks.
 2. **Test under bad network conditions.** Wrap your transport in Mirror's `LatencySimulation` (latency, jitter, packet loss), run a server or host, and connect a separate client build.
-3. **Watch the numbers.** `PredictionManager.Instance` has `totalResimulations`, `totalResimulationSteps` and `totalTickFreezes`. For per-tick warnings, subscribe in `onReady` to `PredictionManager.Instance.onTickStat` (tick and replay durations), `onPacketLoss` (client only) and `PredictedEntityVisuals.onLargeTransformJumpGlobal`.
+3. **Watch the numbers.** `PredictionManager.Instance` has `totalResimulations`, `totalResimulationSteps` and `totalTickFreezes`. For per-tick warnings, subscribe in `onReady` to `PredictionManager.Instance.onTickStat` (tick and replay durations), `ClientPredictionManager.Instance.onPacketLoss` (client only) and `PredictedEntityVisuals.onLargeTransformJumpGlobal`.
 4. **Match symptoms to fixes:**
 
 | Symptom | Try |
@@ -385,7 +388,6 @@ The "Demo" column shows the values used in the reference demo, which are a teste
 - **Ghosts.** Set `PredictedEntityVisuals.SHOW_DBG = true` and give `PredictedEntityVisuals` a Server and/or Client Ghost Prefab (any small mesh without a collider). The server ghost shows the latest server state; the client ghost shows the raw physics body.
 - **Messages.** `NetworkPredictionManagerAdapter.MSG_DEBUG = true` logs every prediction message, and `DEBUG = true` logs every tick.
 - **Library logs.** These are off by default: `PredictionManager.LOG_EVENTS` (spawns, ownership, snaps), `LOG_ERRORS` and `DEBUG`.
-- **Raw prediction.** `PredictionManager.DO_RESIM = false` turns corrections off, so you see the uncorrected prediction.
 
 Logging is expensive at high tick rates, so turn it on only while you investigate.
 

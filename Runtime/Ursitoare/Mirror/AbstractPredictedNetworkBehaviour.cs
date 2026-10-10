@@ -56,7 +56,7 @@ namespace Sector0.UrsitoareMirror
             if (serverPredictedEntity == null)
                 return;
 
-            //NOTE: RemovePredictedEntity doesn't release ownership, so release it first to drop the entity from its owner's set and tell the owning client.
+            //NOTE: deregistering also drops the owner. The owning client isn't told, but its own despawn stops it controlling the entity.
             ((PredictedEntity)this).Deregister();
             serverPredictedEntity = null;
             ReattachVisuals();
