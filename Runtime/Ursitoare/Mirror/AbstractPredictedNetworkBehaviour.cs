@@ -12,6 +12,7 @@ namespace Sector0.UrsitoareMirror
         [SerializeField] private MonoBehaviour[] predictionComponents;
         [SerializeField] private Rigidbody _rigidbody;
         [SerializeField] protected int bufferSize = 50;
+        [SerializeField] private bool autoSetOwnership = true;
         public int BufferSize => bufferSize;
         
         public PredictedEntityVisuals visuals;
@@ -35,8 +36,11 @@ namespace Sector0.UrsitoareMirror
         public override void OnStartServer()
         {
             ConfigureAsServer();
-            int connId = (connectionToClient == null) ? 0 : connectionToClient.connectionId;
-            ServerPredictionManager.Instance.SetEntityOwner(serverPredictedEntity, connId);
+            if (autoSetOwnership)
+            {
+                int connId = (connectionToClient == null) ? 0 : connectionToClient.connectionId;
+                ServerPredictionManager.Instance.SetEntityOwner(serverPredictedEntity, connId);   
+            }
         }
         
         public override void OnStartClient()
@@ -53,7 +57,6 @@ namespace Sector0.UrsitoareMirror
                 return;
 
             //NOTE: RemovePredictedEntity doesn't release ownership, so release it first to drop the entity from its owner's set and tell the owning client.
-            ServerPredictionManager.Instance.UnsetOwnership(serverPredictedEntity);
             ((PredictedEntity)this).Deregister();
             serverPredictedEntity = null;
             ReattachVisuals();
