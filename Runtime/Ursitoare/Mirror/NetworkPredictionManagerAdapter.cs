@@ -34,7 +34,6 @@ namespace Sector0.UrsitoareMirror
                 throw new Exception("Multiple NetworkPredictionManagerAdapters detected");
             }
             Instance = this;
-            SetupApplication();
         }
         
         void OnDestroy()
@@ -50,12 +49,14 @@ namespace Sector0.UrsitoareMirror
         {
             if (Instance == this)
                 SetupServer();
+            SetupApplication();
         }
 
         public override void OnStartClient()
         {
             if (Instance == this && !isServer)
                 SetupClient();
+            SetupApplication();
         }
 
         protected virtual void SetupApplication()
