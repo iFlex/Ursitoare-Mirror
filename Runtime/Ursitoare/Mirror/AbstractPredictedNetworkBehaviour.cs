@@ -39,7 +39,10 @@ namespace Sector0.UrsitoareMirror
             if (autoSetOwnership)
             {
                 int connId = (connectionToClient == null) ? 0 : connectionToClient.connectionId;
-                ServerPredictionManager.Instance.SetEntityOwner(serverPredictedEntity, connId);   
+                if (connId != 0)
+                {
+                    ServerPredictionManager.Instance.SetEntityOwner(serverPredictedEntity, connId);   
+                }
             }
         }
         
